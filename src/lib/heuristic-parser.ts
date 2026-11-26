@@ -94,53 +94,93 @@ type SectionKey =
   | "grading"
   | "other";
 
-function detectSectionHeading(line: string): SectionKey | null {
-  if (line.length > 90) return null;
-  // Strip leading numbering like "1.", "IV.", "Section 2:"
+function detectSectionHeading(line: string, currentSection: SectionKey): SectionKey | null {
+  if (line.length > 85) return null;
+  // Don't treat URLs or sentences ending with a period as headings
+  if (/^https?:\/\//i.test(line) || /\.\s*$/.test(line)) return null;
+
+  // Preserve required/suggested textbook subheadings inside textbooks section
+  if (
+    currentSection === "textbooks" &&
+    /^(?:required|suggested|recommended|optional|supplementary|reference)\s+(?:textbooks?|books?|readings?|references?|materials?)\s*:?$/i.test(
+      line
+    )
+  ) {
+    return null;
+  }
+
+  const hasNumbering = /^(?:section\s+)?(?:\d+(?:\.\d+)*|[IVX]+)[.):\-]\s+/i.test(line);
   const normalized = line
     .replace(/^(?:section\s+)?(?:\d+(?:\.\d+)*|[IVX]+)[.):\-]?\s+/i, "")
     .replace(/[:\-–—]+$/, "")
     .trim();
 
-  if (/^(?:instructor|professor|course\s+staff|teaching\s+team|contact\s+information)/i.test(normalized)) {
+  if (!normalized) return null;
+
+  if (
+    /^(?:instructor(?:\s+information)?|professor|course\s+staff|teaching\s+team|contact\s+information)$/i.test(
+      normalized
+    )
+  ) {
     return "instructor";
   }
   if (
-    /^(?:grading(?:\s+scheme|\s+breakdown|\s+policy)?|evaluation|assessment|marking\s+scheme|course\s+grades?|grade\s+distribution|weights?)$/i.test(
+    /^(?:grading(?:\s+scheme|\s+breakdown|\s+policy|\s+system)?|evaluation(?:\s+scheme|\s+breakdown|\s+and\s+grading)?|assessment(?:\s+scheme|\s+and\s+grading)?|marking\s+scheme|course\s+grades?|grade\s+distribution|course\s+evaluation|weights?)$/i.test(
       normalized
-    ) ||
-    /^(?:grading\s+scheme|evaluation\s+breakdown|assessment\s+scheme)/i.test(normalized)
+    )
   ) {
     return "grading";
   }
   if (
-    /^(?:exam(?:s|\s+dates|\s+schedule)?|important\s+dates|key\s+dates|test\s+dates|midterm\s+and\s+final)/i.test(
+    /^(?:exam(?:s|\s+dates|\s+schedule)?|examinations?|important\s+dates|key\s+dates|test\s+dates|midterm\s+and\s+final(?:\s+exams?)?)$/i.test(
       normalized
     )
   ) {
     return "exams";
   }
   if (
-    /^(?:(?:required\s+(?:and|&|\/)\s+)?(?:suggested|recommended|optional)?\s*textbooks?|course\s+materials?|required\s+readings?|readings?\s+(?:and|&)\s+textbooks?|references?)/i.test(
+    /^(?:(?:required\s+(?:and|&|\/)\s+)?(?:suggested|recommended|optional|reference)?\s*textbooks?|course\s+textbooks?|course\s+materials?|required\s+readings?|readings?\s+(?:and|&)\s+textbooks?|textbooks?\s+(?:and|&)\s+references?|references?)$/i.test(
       normalized
     )
   ) {
     return "textbooks";
   }
   if (
-    /^(?:suggested\s+exercises?|practice\s+problems?|recommended\s+(?:exercises?|problems?)|homework\s+problems?|exercises?\s+(?:and|&)\s+problems?)/i.test(
+    /^(?:suggested\s+exercises?|practice\s+problems?|recommended\s+(?:exercises?|problems?)|homework\s+problems?|exercises?\s+(?:and|&)\s+problems?|problem\s+sets?)$/i.test(
       normalized
     )
   ) {
     return "exercises";
   }
   if (
-    /^(?:course\s+(?:description|objectives|outcomes|policies|schedule)|academic\s+integrity|accommodations?|prerequisites?|weekly\s+schedule|topics\s+covered|late\s+policy|attendance)/i.test(
+    /^(?:course\s+(?:description|content|topics|outline|overview|objectives|outcomes|policies|schedule|calendar|website|format|delivery|expectations)|calendar\s+description|learning\s+(?:outcomes|objectives)|weekly\s+schedule|lecture\s+schedule|class\s+schedule|tentative\s+schedule|topics?(?:\s+covered|\s+outline)?|tutorials?(?:\s+and\s+labs?)?|laborator(?:y|ies)|labs?(?:\s+and\s+tutorials?)?|assignments?(?:\s+and\s+tutorials?)?|software|matlab|computing|academic\s+integrity|plagiarism|accommodations?|accessibility|equity|diversity|inclusivity|student\s+(?:conduct|support|services|wellness)|health\s+and\s+wellness|mental\s+health|university\s+policies|general\s+policies|policies|late\s+(?:policy|submissions?)|attendance|regrading|deferred\s+exams?|missed\s+(?:exams?|tests?|work)|calculators?|calculator\s+policy|copyright|recording|privacy|communication|email\s+policy|prerequisites?|corequisites?|important\s+notes?|disclaimer|office\s+hours\s+and\s+help)$/i.test(
       normalized
     )
   ) {
     return "other";
   }
+
+  // Generic numbered or ALL-CAPS short heading ends narrow sections like textbooks/grading/exams
+  if (currentSection !== "header" && currentSection !== "other") {
+    const isAllCapsHeading =
+      normalized.length >= 4 &&
+      normalized.length <= 45 &&
+      /^[A-Z0-9\s&/,-]+$/.test(normalized) &&
+      /[A-Z]{3,}/.test(normalized) &&
+      !/^ISBN\b/.test(normalized);
+
+    const isShortNumberedHeading =
+      hasNumbering &&
+      normalized.length >= 4 &&
+      normalized.length <= 45 &&
+      !/\d+%/.test(normalized) &&
+      !/\b(?:ISBN|edition|ed\.|press|mcgraw|pearson|wiley|springer)\b/i.test(normalized);
+
+    if (isAllCapsHeading || isShortNumberedHeading) {
+      return "other";
+    }
+  }
+
   return null;
 }
 
@@ -157,7 +197,7 @@ function splitIntoSections(lines: string[]): Record<SectionKey, string[]> {
 
   let current: SectionKey = "header";
   for (const line of lines) {
-    const heading = detectSectionHeading(line);
+    const heading = detectSectionHeading(line, current);
     if (heading) {
       current = heading;
       continue;
@@ -381,6 +421,84 @@ function extractExams(allLines: string[], examSection: string[], fallbackYear: n
   return exams;
 }
 
+const PUBLISHER_REGEX =
+  /\b(?:McGraw[\s-]?Hill|Pearson|Wiley|Springer|MIT\s+Press|Oxford|Cambridge|CRC\s+Press|Prentice\s+Hall|Cengage|Addison[\s-]?Wesley|O['’]Reilly|Elsevier|Morgan\s+Kaufmann|Brooks\/Cole|Academic\s+Press|Macmillan|Thomson|Schaum)\b/i;
+
+const EDITION_REGEX =
+  /\b(\d+(?:st|nd|rd|th)\s+ed(?:ition)?\.?|(?:First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth)\s+Edition|Ed(?:ition)?\.?\s*\d+(?:\.\d+)?)\b/i;
+
+function looksLikeBookContinuation(prevLine: string, nextLine: string): boolean {
+  if (/^[-•*▪]\s+/.test(nextLine)) return false;
+  if (/^(?:required|suggested|recommended|optional|reference)\b/i.test(nextLine)) return false;
+  if (/^https?:\/\//i.test(nextLine)) return false;
+
+  // Previous line clearly broke mid-name or mid-clause (e.g. "Michael J" or ending with "," or "and")
+  if (/(?:,|\band|\bof|\bby|\b[A-Z]\.?)$/.test(prevLine.trim())) {
+    return true;
+  }
+
+  // Next line starts with publisher, ISBN, edition, or short "Surname, Publisher, Year" fragment
+  if (
+    PUBLISHER_REGEX.test(nextLine) &&
+    nextLine.length < 70 &&
+    !/:\s/.test(nextLine)
+  ) {
+    return true;
+  }
+  if (/^(?:ISBN|Ed(?:ition)?\.?\s*\d|\d+(?:st|nd|rd|th)\s+ed|©|\(?\d{4}\)?\.?$)/i.test(nextLine)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isNonBookNoiseLine(line: string): boolean {
+  if (line.length < 6 || line.length > 260) return true;
+  // Pure URL or email
+  if (/^(?:https?:\/\/|www\.|mailto:)/i.test(line)) return true;
+  // Policy / instructional prose sentences
+  if (
+    /^(?:students?|please|you\s+(?:are|will|can|may|must|should)|this\s+course|the\s+course|lectures?|tutorials?|labs?|exams?|midterms?|final\s+exam|assignments?|homework|attendance|grading|evaluation|note\s+that|for\s+more\s+info|if\s+you|all\s+(?:students|exams|assignments|materials)|academic\s+integrity|in\s+accordance|university|faculty|department|copyright|calculators?|office\s+hours|prerequisite)/i.test(
+      line
+    )
+  ) {
+    return true;
+  }
+  // Sentences with grading percentages or calendar dates (clearly bled from another section)
+  if (/\b\d{1,3}%\b/.test(line) && !/\bbook|textbook|edition|isbn\b/i.test(line)) {
+    return true;
+  }
+  // Short heading-like label ending with ":" (e.g., "Free version of the book:")
+  if (/:\s*$/.test(line) && line.length < 65) return true;
+  // Pure conversational sentence with verbs and no citation clues
+  const hasCitationClue =
+    EDITION_REGEX.test(line) ||
+    PUBLISHER_REGEX.test(line) ||
+    /\bISBN\b/i.test(line) ||
+    /\b(?:19|20)\d{2}\b/.test(line) ||
+    /\bby\s+[A-Z]/i.test(line) ||
+    /,\s*[A-Z][a-z]+/.test(line);
+  if (
+    !hasCitationClue &&
+    /\b(?:will\s+be|must\s+be|should\s+be|are\s+expected|is\s+not\s+allowed|can\s+be\s+found|posted\s+on|uploaded\s+to|brightspace|canvas|blackboard|moodle|piazza)\b/i.test(
+      line
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function looksLikeAuthorSegment(segment: string): boolean {
+  const s = segment.trim();
+  if (!s || s.length < 4 || s.length > 90) return false;
+  if (PUBLISHER_REGEX.test(s) || EDITION_REGEX.test(s) || /^\d{4}$/.test(s)) return false;
+  // Matches names like "Michael D. Adams", "Michael J. Roberts", "A. Oppenheim and A. Willsky"
+  return /^[A-Z][a-zA-Z.'-]+(?:\s+(?:[A-Z]\.?|[A-Z][a-zA-Z.'-]+|and|&|et\s+al\.?)){1,8}$/.test(
+    s.replace(/,\s*/g, " ")
+  );
+}
+
 function extractTextbooks(textbookSection: string[]) {
   const books: Array<{
     title: string;
@@ -392,60 +510,186 @@ function extractTextbooks(textbookSection: string[]) {
   }> = [];
 
   let currentReq: "required" | "suggested" = "required";
+  let pendingNoteLabel = "";
+
+  // First pass: keep subheadings, attach URLs/labels to previous book, and merge wrapped citation lines
+  interface CandidateLine {
+    text: string;
+    requirement: "required" | "suggested";
+    attachedNotes: string[];
+  }
+  const candidates: CandidateLine[] = [];
 
   for (const rawLine of textbookSection) {
-    const line = rawLine.replace(/^[-•*▪\d.)]+\s*/, "").trim();
-    if (line.length < 5) continue;
+    const line = rawLine.trim();
+    if (!line) continue;
 
-    if (/^(?:required\s+(?:textbooks?|readings?|materials?))\s*:?$/i.test(line)) {
+    // Subheadings for required vs suggested/reference
+    if (/^(?:required|mandatory|primary|course)\s+(?:textbooks?|books?|readings?|materials?)\s*:?$/i.test(line)) {
       currentReq = "required";
+      pendingNoteLabel = "";
       continue;
     }
-    if (/^(?:(?:suggested|recommended|optional|supplementary)\s+(?:textbooks?|readings?|references?|materials?))\s*:?$/i.test(line)) {
+    if (
+      /^(?:(?:suggested|recommended|optional|supplementary|additional|reference)\s+(?:textbooks?|books?|readings?|references?|materials?)|references?)\s*:?$/i.test(
+        line
+      )
+    ) {
       currentReq = "suggested";
+      pendingNoteLabel = "";
       continue;
     }
+
+    // Label line like "Free version of the book:" -> save to pair with following URL
+    if (/^(?:free\s+version|online\s+version|download|pdf\s+link|available\s+at|ebook|e-book|link|url|website)/i.test(line)) {
+      const inlineUrl = line.match(/https?:\/\/\S+/i);
+      if (inlineUrl && candidates.length > 0) {
+        candidates[candidates.length - 1].attachedNotes.push(line);
+        pendingNoteLabel = "";
+      } else {
+        pendingNoteLabel = line.replace(/:$/, "").trim();
+      }
+      continue;
+    }
+
+    // Standalone URL -> attach as note to previous textbook!
+    if (/^(?:https?:\/\/|www\.)\S+$/i.test(line)) {
+      if (candidates.length > 0) {
+        const note = pendingNoteLabel ? `${pendingNoteLabel}: ${line}` : line;
+        candidates[candidates.length - 1].attachedNotes.push(note);
+      }
+      pendingNoteLabel = "";
+      continue;
+    }
+
+    const stripped = line.replace(/^[-•*▪]\s*|^\[\d+\]\s*|^\d+[.)]\s*/, "").trim();
+    if (!stripped) continue;
+
+    // Merge wrapped multi-line citation into previous candidate
+    if (
+      candidates.length > 0 &&
+      looksLikeBookContinuation(candidates[candidates.length - 1].text, line)
+    ) {
+      candidates[candidates.length - 1].text = `${candidates[candidates.length - 1].text} ${stripped}`
+        .replace(/,\s*,+/g, ",")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      continue;
+    }
+
+    pendingNoteLabel = "";
+    if (isNonBookNoiseLine(stripped)) continue;
 
     let requirement: "required" | "suggested" = currentReq;
-    if (/\b(?:suggested|recommended|optional|supplementary)\b/i.test(line)) {
+    if (/\b(?:suggested|recommended|optional|supplementary|reference)\b/i.test(stripped)) {
       requirement = "suggested";
-    } else if (/\brequired\b/i.test(line)) {
+    } else if (/\brequired\b/i.test(stripped)) {
       requirement = "required";
     }
 
+    candidates.push({
+      text: stripped,
+      requirement,
+      attachedNotes: [],
+    });
+  }
+
+  for (const candidate of candidates) {
+    const line = candidate.text;
     const isbnMatch = line.match(/ISBN(?:-1[03])?\s*:?\s*([0-9Xx-]{10,17})/);
-    const editionMatch = line.match(
-      /\b(\d+(?:st|nd|rd|th)\s+(?:ed(?:ition)?\.?)|(?:First|Second|Third|Fourth|Fifth|Sixth)\s+Edition)\b/i
-    );
+    const editionMatch = line.match(EDITION_REGEX);
+    const urlMatch = line.match(/https?:\/\/\S+/i);
+
+    const extraNotes = [...candidate.attachedNotes];
+    if (urlMatch) extraNotes.push(urlMatch[0]);
 
     const cleaned = line
-      .replace(/^(?:Required|Suggested|Recommended|Optional)\s*:\s*/i, "")
-      .replace(/\((?:Required|Suggested|Recommended|Optional)\)/gi, "")
+      .replace(/^(?:Required|Suggested|Recommended|Optional|Reference)\s*:\s*/i, "")
+      .replace(/\((?:Required|Suggested|Recommended|Optional|Reference)\)/gi, "")
       .replace(/ISBN(?:-1[03])?\s*:?\s*[0-9Xx-]{10,17}/gi, "")
+      .replace(/https?:\/\/\S+/gi, "")
+      .replace(/,\s*,+/g, ",")
       .replace(/[,;.\s]+$/, "")
       .trim();
 
     let title = cleaned;
     let authors = "";
 
-    // Pattern: "Title" by Author Name
+    // Pattern 1: "Title" by Author Name
     const byMatch = cleaned.match(/^["“]?(.+?)["”]?\s+by\s+(.+)$/i);
     if (byMatch) {
       title = byMatch[1].replace(/[,.;]+$/, "").trim();
       authors = byMatch[2].replace(/[,.;]+$/, "").trim();
     } else {
-      // Pattern: Author (Year). Title. or Title — Author
-      const dashMatch = cleaned.match(/^(.+?)\s+[—–-]\s+(.+)$/);
+      // Pattern 2: Title — Author
+      const dashMatch = cleaned.match(/^(.+?)\s+[—–]\s+(.+)$/);
       if (dashMatch && dashMatch[1].length > 3 && dashMatch[2].length > 2) {
         title = dashMatch[1].trim();
         authors = dashMatch[2].trim();
+      } else {
+        // Pattern 3: Comma-separated academic citation ("Signals and Systems, Michael D. Adams, Ed. 6.0")
+        const parts = cleaned
+          .split(/\s*,\s*/)
+          .map((p) => p.trim())
+          .filter(Boolean);
+
+        if (parts.length >= 2) {
+          const remaining: string[] = [];
+          const authorParts: string[] = [];
+          const metaParts: string[] = [];
+
+          for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            if (i === 0) {
+              remaining.push(part);
+              continue;
+            }
+            if (EDITION_REGEX.test(part)) continue;
+            if (PUBLISHER_REGEX.test(part) || /^(?:19|20)\d{2}$/.test(part)) {
+              metaParts.push(part);
+              continue;
+            }
+            if (authorParts.length === 0 && looksLikeAuthorSegment(part)) {
+              authorParts.push(part);
+            } else if (authorParts.length > 0 && looksLikeAuthorSegment(part)) {
+              authorParts.push(part);
+            } else {
+              remaining.push(part);
+            }
+          }
+
+          if (authorParts.length > 0) {
+            title = remaining.join(", ");
+            authors = authorParts.join(", ");
+            if (metaParts.length > 0) {
+              extraNotes.push(metaParts.join(", "));
+            }
+          }
+        }
       }
     }
 
-    // Strip edition from title/authors if duplicated
+    // Strip edition string from title/authors if duplicated
     if (editionMatch) {
-      title = title.replace(editionMatch[0], "").replace(/\(\s*\)/g, "").replace(/,\s*$/, "").trim();
-      authors = authors.replace(editionMatch[0], "").replace(/\(\s*\)/g, "").replace(/,\s*$/, "").trim();
+      title = title
+        .replace(editionMatch[0], "")
+        .replace(/\(\s*\)/g, "")
+        .replace(/[,.\s]+$/, "")
+        .trim();
+      authors = authors
+        .replace(editionMatch[0], "")
+        .replace(/\(\s*\)/g, "")
+        .replace(/[,.\s]+$/, "")
+        .trim();
+    }
+
+    // Strip trailing publisher/year from authors if present
+    const pubYearMatch = authors.match(
+      new RegExp(`[,;]?\\s*(${PUBLISHER_REGEX.source}(?:,\\s*(?:19|20)\\d{2})?)$`, "i")
+    );
+    if (pubYearMatch) {
+      extraNotes.push(pubYearMatch[1].trim());
+      authors = authors.slice(0, pubYearMatch.index).replace(/[,;\s]+$/, "").trim();
     }
 
     if (title.length > 2) {
@@ -454,13 +698,14 @@ function extractTextbooks(textbookSection: string[]) {
         authors,
         edition: editionMatch ? editionMatch[1] : "",
         isbn: isbnMatch ? isbnMatch[1] : "",
-        requirement,
-        notes: "",
+        requirement: candidate.requirement,
+        notes: Array.from(new Set(extraNotes)).join(" • "),
       });
     }
   }
 
-  return books;
+  // Cap unreasonable extraction noise if a PDF had no recognizable section breaks
+  return books.slice(0, 15);
 }
 
 function extractExercises(exerciseSection: string[], allLines: string[]) {
@@ -472,13 +717,14 @@ function extractExercises(exerciseSection: string[], allLines: string[]) {
     weekOrDue: string;
   }> = [];
 
-  const scanLines = pool.length > 0
-    ? pool
-    : allLines.filter((l) =>
-        /\b(?:suggested\s+exercises?|practice\s+problems?|exercises?\s*[:#]|\bCh(?:apter|\.)\s*\d+\s*[:\-–].*(?:problem|exercise|#|\d+-\d+))/i.test(
-          l
-        )
-      );
+  const scanLines =
+    pool.length > 0
+      ? pool
+      : allLines.filter((l) =>
+          /\b(?:suggested\s+exercises?|practice\s+problems?|exercises?\s*[:#]|\bCh(?:apter|\.)\s*\d+\s*[:\-–].*(?:problem|exercise|#|\d+-\d+))/i.test(
+            l
+          )
+        );
 
   for (const rawLine of scanLines) {
     const line = rawLine.replace(/^[-•*▪]\s*/, "").trim();
@@ -521,13 +767,122 @@ function extractExercises(exerciseSection: string[], allLines: string[]) {
   return exercises;
 }
 
+function isLetterGradeScaleLine(line: string): boolean {
+  // Matches "A+: 90-100%", "A-, A, A+: Overall mark of 80%", "B-, B, B+: 68% - 79%", "F: < 50%"
+  if (
+    /^(?:[A-F][+-]?(?:\s*[,\/&]\s*|\s+(?:to|or|-|–)\s+))*[A-F][+-]?\s*[:=\-–]/i.test(line)
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:overall\s+mark|letter\s+grade|grade\s+scale|grade\s+conversion|grade\s+point|gpa|or\s+higher|or\s+above|or\s+below|below\s+\d+%)\b/i.test(
+      line
+    )
+  ) {
+    return true;
+  }
+  // Range like "68% - 79%" or "80% to 100%"
+  if (/\b\d{1,3}\s*%\s*(?:-|–|—|to)\s*\d{1,3}\s*%/i.test(line)) {
+    return true;
+  }
+  return false;
+}
+
+function cleanGradingName(raw: string): string {
+  return raw
+    .replace(/^[-•*▪\d.)]+\s*/, "")
+    .replace(
+      /^(?:the\s+)?(?:final\s+|course\s+)?grades?\s+(?:will\s+be\s+|are\s+|is\s+)?(?:calculated|determined|computed|distributed|broken\s+down)\s+as\s+follows\s*:?\s*/i,
+      ""
+    )
+    .replace(/^(?:calculated|determined|computed)\s+as\s+follows\s*:?\s*/i, "")
+    .replace(/^(?:and|plus|&)\s+/i, "")
+    .replace(/[([:;\-–—•|.,\s]+$/, "")
+    .replace(/^[:;\-–—•|.,\s)]+/, "")
+    .trim();
+}
+
+function extractInlineGradingPairs(
+  text: string
+): Array<{ name: string; weight: number; notes: string }> {
+  const results: Array<{ name: string; weight: number; notes: string }> = [];
+  // Split prose sentences like "Tutorials (20%), Midterm (30%), and Final exam (50%)."
+  // First strip intro clause up to "as follows:" if present
+  const body = text.replace(
+    /^.*?\b(?:calculated|determined|computed|distributed|allocated)\s+as\s+follows\s*:\s*/i,
+    ""
+  );
+
+  const segments = body.split(/,\s*(?:and\s+)?|;\s*(?:and\s+)?|\s+and\s+(?=[A-Za-z][^%]*\d+\s*%)/i);
+  if (segments.length < 2) return [];
+
+  for (const seg of segments) {
+    const trimmed = seg.trim();
+    const m = trimmed.match(/^(.+?)\s*\(\s*(\d{1,3}(?:\.\d+)?)\s*%\s*\)(.*)$/) ||
+      trimmed.match(/^(.+?)\s*[:\-–—]?\s*(\d{1,3}(?:\.\d+)?)\s*%(.*)$/);
+    if (!m) continue;
+
+    const weight = Number.parseFloat(m[2]);
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 100) continue;
+
+    const name = cleanGradingName(m[1]);
+    const notes = m[3].replace(/^[\s),.;\-–—]+|[\s.;]+$/g, "").trim();
+    if (!name || name.length > 60) continue;
+    results.push({ name, weight, notes });
+  }
+
+  return results.length >= 2 ? results : [];
+}
+
 function extractGradingScheme(gradingSection: string[], allLines: string[]) {
   const pool = gradingSection.length > 0 ? gradingSection : allLines;
   const items: Array<{ name: string; weight: number; notes: string }> = [];
   const seen = new Set<string>();
 
+  const addItem = (name: string, weight: number, notes: string) => {
+    const cleanedName = cleanGradingName(name);
+    if (!cleanedName || cleanedName.length > 75) return;
+    if (/\b(?:total|passing\s+grade|minimum|penalty|late\s+deduction|per\s+day)\b/i.test(cleanedName)) {
+      return;
+    }
+    const key = `${cleanedName.toLowerCase()}|${weight}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push({ name: cleanedName, weight, notes });
+  };
+
+  // Pre-pass: join consecutive prose lines inside gradingSection when a sentence wraps across lines
+  // (e.g. "...calculated as follows: Tutorials (20%), Midterm (30%)," + "and Final exam (50%).")
+  const mergedLines: string[] = [];
   for (const rawLine of pool) {
     const line = rawLine.replace(/^[-•*▪]\s*/, "").trim();
+    if (isLetterGradeScaleLine(line)) continue;
+
+    if (
+      gradingSection.length > 0 &&
+      mergedLines.length > 0 &&
+      !isLetterGradeScaleLine(mergedLines[mergedLines.length - 1]) &&
+      /(?:,\s*|\(\s*|\band\s*|:\s*)$/i.test(mergedLines[mergedLines.length - 1]) &&
+      /^(?:and\s+|or\s+|\d+\s*%|[a-z])/i.test(line)
+    ) {
+      mergedLines[mergedLines.length - 1] = `${mergedLines[mergedLines.length - 1]} ${line}`;
+    } else {
+      mergedLines.push(line);
+    }
+  }
+
+  for (const line of mergedLines) {
+    if (isLetterGradeScaleLine(line)) continue;
+
+    // Check if the line contains multiple inline components (e.g. "Tutorials (20%), Midterm (30%), and Final exam (50%)")
+    const inlinePairs = extractInlineGradingPairs(line);
+    if (inlinePairs.length >= 2) {
+      for (const pair of inlinePairs) {
+        addItem(pair.name, pair.weight, pair.notes);
+      }
+      continue;
+    }
+
     const allPctMatches = Array.from(line.matchAll(/(\d{1,3}(?:\.\d+)?)\s*%/g));
     if (allPctMatches.length === 0) continue;
 
@@ -552,10 +907,9 @@ function extractGradingScheme(gradingSection: string[], allLines: string[]) {
     const weight = Number.parseFloat(pctMatch[1]);
     if (!Number.isFinite(weight) || weight <= 0 || weight > 100) continue;
 
-    // Skip lines that look like letter grade scales ("A+ : 90% - 100%")
-    if (/^[A-F][+-]?\s*[:=\-–]\s*\d/i.test(line)) continue;
     if (/\b(?:total|passing\s+grade|minimum|penalty|late\s+deduction|per\s+day)\b/i.test(line)) {
-      continue;
+      // Allow lines like "Final Exam (must earn at least 40% to pass): 35%" when there's an outside-parens weight
+      if (outsideParens.length === 0) continue;
     }
 
     // If scanning full document (no grading section detected), require assessment keywords
@@ -568,10 +922,10 @@ function extractGradingScheme(gradingSection: string[], allLines: string[]) {
       continue;
     }
 
-    const beforePct = line.slice(0, pctMatch.index).replace(/[:\-–—•|.\s]+$/, "").trim();
+    const beforePct = line.slice(0, pctMatch.index).replace(/[:\-–—•|.\s(]+$/, "").trim();
     const afterPct = line
       .slice((pctMatch.index ?? 0) + pctMatch[0].length)
-      .replace(/^[:\-–—•|,\s]+/, "")
+      .replace(/^[:\-–—•|,\s)]+/, "")
       .trim();
 
     let name = beforePct || afterPct;
@@ -585,15 +939,8 @@ function extractGradingScheme(gradingSection: string[], allLines: string[]) {
       notes = notes ? `${parenText}; ${notes}` : parenText;
     }
 
-    name = name.replace(/[:\-–—.,]+$/, "").trim();
     notes = notes.replace(/^\(|\)$/g, "").trim();
-
-    if (!name || name.length > 80) continue;
-    const key = `${name.toLowerCase()}|${weight}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    items.push({ name, weight, notes });
+    addItem(name, weight, notes);
   }
 
   return items;

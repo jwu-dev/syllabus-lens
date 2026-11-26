@@ -108,4 +108,61 @@ describe("parseSyllabusHeuristically", () => {
     expect(result.exercises.length).toBeGreaterThanOrEqual(3);
     expect(result.gradingScheme.reduce((sum, g) => sum + g.weight, 0)).toBe(100);
   });
+
+  it("handles wrapped citations, book URLs, inline prose grading, and letter-grade scales cleanly", () => {
+    const realWorldSyllabus = `
+ELEC 260: Continuous-Time Signals and Systems
+Fall 2026
+
+Instructor: Dr. Alex Rivera
+
+Textbooks:
+Signals and Systems, Michael D. Adams, Ed. 6.0
+Free version of the book:
+https://www.ece.uvic.ca/~frodo/sigsysbook/downloads/signals_and_systems-6.0.pdf
+Suggested Textbooks:
+Signals and Systems: Analysis Using Transform Methods and Matlab, Michael J
+Roberts, , McGraw-Hill, 2011
+
+Course Content
+This course covers continuous-time signals, LTI systems, Fourier series, and Laplace transforms.
+Students are expected to attend all lectures and tutorials regularly.
+
+Grading Scheme
+The final grade will be calculated as follows: Tutorials (20%), Midterm (30%),
+and Final exam (50%).
+A-, A, A+: Overall mark of 80% or higher
+B-, B, B+: Overall mark of 68% - 79%
+C-, C, C+: Overall mark of 56% - 67%
+D-, D, D+: Overall mark of 50% - 55%
+F: Overall mark below 50%
+`;
+
+    const result = parseSyllabusHeuristically(realWorldSyllabus);
+
+    // Textbooks: exactly 2 clean entries (URL attached as note, wrapped citation merged, Course Content excluded)
+    expect(result.textbooks).toHaveLength(2);
+    expect(result.textbooks[0]).toMatchObject({
+      title: "Signals and Systems",
+      authors: "Michael D. Adams",
+      edition: "Ed. 6.0",
+      requirement: "required",
+    });
+    expect(result.textbooks[0].notes).toContain("signals_and_systems-6.0.pdf");
+
+    expect(result.textbooks[1]).toMatchObject({
+      title: "Signals and Systems: Analysis Using Transform Methods and Matlab",
+      authors: "Michael J Roberts",
+      requirement: "suggested",
+    });
+
+    // Grading scheme: exactly 3 components totaling 100%, no letter-grade scale rows!
+    expect(result.gradingScheme).toHaveLength(3);
+    expect(result.gradingScheme.map((g) => ({ name: g.name, weight: g.weight }))).toEqual([
+      { name: "Tutorials", weight: 20 },
+      { name: "Midterm", weight: 30 },
+      { name: "Final exam", weight: 50 },
+    ]);
+    expect(result.gradingScheme.reduce((s, g) => s + g.weight, 0)).toBe(100);
+  });
 });

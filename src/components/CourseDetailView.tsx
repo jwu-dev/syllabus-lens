@@ -19,9 +19,11 @@ import {
   FileText,
   GraduationCap,
   ListChecks,
+  Loader2,
   Mail,
   MapPin,
   Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
   Upload,
@@ -47,6 +49,7 @@ interface CourseDetailViewProps {
   onBack: () => void;
   onUpdate: (updated: CourseOutline) => void;
   onDelete: (courseId: string) => void;
+  onReextract?: (course: CourseOutline) => Promise<void>;
 }
 
 function downloadTextFile(filename: string, content: string, mimeType: string) {
@@ -75,10 +78,12 @@ export function CourseDetailView({
   onBack,
   onUpdate,
   onDelete,
+  onReextract,
 }: CourseDetailViewProps) {
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
   const [showPdf, setShowPdf] = useState<boolean>(true);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [reextracting, setReextracting] = useState(false);
   const [bookFilter, setBookFilter] = useState<"all" | "required" | "suggested">("all");
   const [newTa, setNewTa] = useState("");
   const [showRawText, setShowRawText] = useState(false);
@@ -275,6 +280,36 @@ export function CourseDetailView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onReextract && pdfUrl && (
+            <button
+              type="button"
+              disabled={reextracting}
+              onClick={async () => {
+                setReextracting(true);
+                try {
+                  await onReextract(course);
+                  setDismissedWarnings(false);
+                  showNotice("Re-extracted syllabus from stored PDF.");
+                } catch (err) {
+                  showNotice(
+                    err instanceof Error ? err.message : "Could not re-extract PDF."
+                  );
+                } finally {
+                  setReextracting(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"
+              title="Re-run extraction on this stored PDF"
+            >
+              {reextracting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {reextracting ? "Re-extracting…" : "Re-extract"}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setShowPdf((v) => !v)}

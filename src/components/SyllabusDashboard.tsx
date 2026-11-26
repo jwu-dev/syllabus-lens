@@ -27,6 +27,7 @@ import {
   deletePdfBlob,
   loadAiSettings,
   loadCourses,
+  loadPdfBlob,
   saveAiSettings,
   saveCourses,
   savePdfBlob,
@@ -331,6 +332,53 @@ export function SyllabusDashboard() {
     setCourses((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
   };
 
+  const handleReextractCourse = async (course: CourseOutline) => {
+    let blob = await loadPdfBlob(course.id);
+    if (!blob && course.samplePdfUrl) {
+      const res = await fetch(course.samplePdfUrl);
+      if (res.ok) blob = await res.blob();
+    }
+    if (!blob) {
+      throw new Error("Original PDF not found locally. Attach the PDF first.");
+    }
+
+    const file = new File([blob], course.fileName || "course-outline.pdf", {
+      type: "application/pdf",
+    });
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("provider", aiSettings.provider);
+    if (
+      aiSettings.geminiApiKey &&
+      (aiSettings.provider === "auto" || aiSettings.provider === "gemini")
+    ) {
+      formData.append("apiKey", aiSettings.geminiApiKey);
+      formData.append("model", aiSettings.geminiModel);
+    } else if (
+      aiSettings.openaiApiKey &&
+      (aiSettings.provider === "auto" || aiSettings.provider === "openai")
+    ) {
+      formData.append("apiKey", aiSettings.openaiApiKey);
+      formData.append("model", aiSettings.openaiModel);
+    }
+
+    const extractRes = await fetch("/api/extract", { method: "POST", body: formData });
+    const json = (await extractRes.json()) as {
+      syllabus?: ExtractedSyllabus;
+      error?: string;
+    };
+    if (!extractRes.ok || !json.syllabus) {
+      throw new Error(json.error || "Re-extraction failed.");
+    }
+
+    handleUpdateCourse({
+      ...course,
+      ...json.syllabus,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Top Navbar */}
@@ -434,6 +482,7 @@ export function SyllabusDashboard() {
             onBack={() => setSelectedId(null)}
             onUpdate={handleUpdateCourse}
             onDelete={handleDeleteCourse}
+            onReextract={handleReextractCourse}
           />
         ) : courses.length === 0 ? (
           /* Empty State */
