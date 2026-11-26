@@ -1,0 +1,37 @@
+{
+  "name": "syllabus-lens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Extract instructor details, exam dates, textbooks, suggested exercises, and grading schemes from course outline PDFs.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate:sample": "node scripts/generate-sample-pdf.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^0.469.0",
+    "next": "^15.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "unpdf": "^0.12.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.1.7",
+    "pdf-lib": "^1.17.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
