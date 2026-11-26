@@ -195,7 +195,8 @@ export function CourseDetailView({
   const methodBadge = {
     gemini: { label: "Gemini AI", cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
     openai: { label: "OpenAI", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-    local: { label: "Local Parser", cls: "bg-slate-100 text-slate-700 border-slate-200" },
+    ollama: { label: "Ollama Local", cls: "bg-violet-50 text-violet-700 border-violet-200" },
+    local: { label: "Layout Parser", cls: "bg-slate-100 text-slate-700 border-slate-200" },
     manual: { label: "Manual", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   }[course.extractionMethod];
 

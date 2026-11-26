@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { extractSyllabusHybrid } from "@/lib/ai-extractor";
-import { extractPdfText } from "@/lib/pdf";
+import { extractPdfLayout, type PdfLayoutDocument } from "@/lib/pdf";
 import type { ExtractionProvider } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -43,17 +43,20 @@ export async function POST(request: Request) {
 
     const rawProvider = String(formData.get("provider") || "auto").toLowerCase();
     const provider: ExtractionProvider =
-      rawProvider === "gemini" || rawProvider === "openai" || rawProvider === "local"
+      rawProvider === "gemini" ||
+      rawProvider === "openai" ||
+      rawProvider === "ollama" ||
+      rawProvider === "local"
         ? rawProvider
         : "auto";
 
     const apiKey = String(formData.get("apiKey") || "").trim() || undefined;
     const model = String(formData.get("model") || "").trim() || undefined;
+    const ollamaBaseUrl = String(formData.get("ollamaBaseUrl") || "").trim() || undefined;
 
     const arrayBuffer = await file.arrayBuffer();
     const pdfBytes = new Uint8Array(arrayBuffer);
 
-    // Quick PDF header magic check (%PDF-)
     const header = Buffer.from(pdfBytes.slice(0, 5)).toString("ascii");
     if (header !== "%PDF-") {
       return NextResponse.json(
@@ -62,17 +65,17 @@ export async function POST(request: Request) {
       );
     }
 
+    let layout: PdfLayoutDocument | undefined;
     let rawText = "";
     let pageCount = 0;
 
     try {
-      const extracted = await extractPdfText(pdfBytes);
-      rawText = extracted.text;
-      pageCount = extracted.pageCount;
+      layout = await extractPdfLayout(pdfBytes);
+      rawText = layout.text;
+      pageCount = layout.pageCount;
     } catch (pdfErr) {
-      console.error("PDF text extraction error:", pdfErr);
-      // Still allow Gemini native PDF processing if configured
-      if (provider === "local") {
+      console.error("PDF layout extraction error:", pdfErr);
+      if (provider === "local" || provider === "ollama") {
         return NextResponse.json(
           {
             error:
@@ -85,11 +88,13 @@ export async function POST(request: Request) {
 
     const syllabus = await extractSyllabusHybrid({
       pdfBytes,
+      layout,
       rawText,
       pageCount,
       provider,
       apiKey,
       model,
+      ollamaBaseUrl,
     });
 
     return NextResponse.json({

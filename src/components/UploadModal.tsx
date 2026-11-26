@@ -41,16 +41,19 @@ export function UploadModal({
   if (!open) return null;
 
   const activeEngineLabel = (() => {
-    if (aiSettings.provider === "local") return "Local Heuristic Parser";
+    if (aiSettings.provider === "local") return "Offline Layout Parser";
+    if (aiSettings.provider === "ollama") {
+      return `Ollama Local LLM (${aiSettings.ollamaModel})`;
+    }
     if (aiSettings.provider === "gemini") {
       return aiSettings.geminiApiKey || serverKeys.gemini
         ? `Gemini AI (${aiSettings.geminiModel})`
-        : "Gemini (no key set — will use Local Fallback)";
+        : "Gemini (no key set — will use Offline Fallback)";
     }
     if (aiSettings.provider === "openai") {
       return aiSettings.openaiApiKey || serverKeys.openai
         ? `OpenAI (${aiSettings.openaiModel})`
-        : "OpenAI (no key set — will use Local Fallback)";
+        : "OpenAI (no key set — will use Offline Fallback)";
     }
     if (aiSettings.geminiApiKey || serverKeys.gemini) {
       return `Auto → Gemini AI (${aiSettings.geminiModel})`;
@@ -58,7 +61,7 @@ export function UploadModal({
     if (aiSettings.openaiApiKey || serverKeys.openai) {
       return `Auto → OpenAI (${aiSettings.openaiModel})`;
     }
-    return "Auto → Local Heuristic Parser (no API key needed)";
+    return "Auto → Offline Layout Parser (connect Gemini or Ollama in AI Settings)";
   })();
 
   const processFile = async (file: File, samplePdfUrl?: string) => {
@@ -85,6 +88,11 @@ export function UploadModal({
       } else if (aiSettings.provider === "openai") {
         if (aiSettings.openaiApiKey) formData.append("apiKey", aiSettings.openaiApiKey);
         if (aiSettings.openaiModel) formData.append("model", aiSettings.openaiModel);
+      } else if (aiSettings.provider === "ollama") {
+        if (aiSettings.ollamaBaseUrl) {
+          formData.append("ollamaBaseUrl", aiSettings.ollamaBaseUrl);
+        }
+        if (aiSettings.ollamaModel) formData.append("model", aiSettings.ollamaModel);
       } else if (aiSettings.provider === "auto") {
         if (aiSettings.geminiApiKey) {
           formData.append("apiKey", aiSettings.geminiApiKey);

@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseSyllabusHeuristically } from "./heuristic-parser";
-import { extractPdfText } from "./pdf";
+import { parseSyllabusFromLayout, parseSyllabusHeuristically } from "./heuristic-parser";
+import { extractPdfLayout } from "./pdf";
 
 const SAMPLE_SYLLABUS_TEXT = `
 CS 301: Data Structures and Algorithms
@@ -93,13 +93,13 @@ describe("parseSyllabusHeuristically", () => {
     expect(result.extractionWarnings.some((w) => w.toLowerCase().includes("scanned"))).toBe(true);
   });
 
-  it("extracts structured syllabus fields end-to-end from the generated sample PDF", async () => {
+  it("extracts structured syllabus fields end-to-end from the generated sample PDF using layout blocks", async () => {
     const pdfPath = path.join(process.cwd(), "public", "sample-syllabus.pdf");
     const pdfBytes = new Uint8Array(await readFile(pdfPath));
-    const { text, pageCount } = await extractPdfText(pdfBytes);
+    const layout = await extractPdfLayout(pdfBytes);
 
-    expect(pageCount).toBeGreaterThanOrEqual(1);
-    const result = parseSyllabusHeuristically(text, { pageCount });
+    expect(layout.pageCount).toBeGreaterThanOrEqual(1);
+    const result = parseSyllabusFromLayout(layout);
 
     expect(result.courseCode).toBe("CS 301");
     expect(result.instructor.name).toBe("Dr. Maya Chen");

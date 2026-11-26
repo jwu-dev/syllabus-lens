@@ -1,5 +1,5 @@
-export type ExtractionProvider = "auto" | "gemini" | "openai" | "local";
-export type ExtractionMethod = "gemini" | "openai" | "local" | "manual";
+export type ExtractionProvider = "auto" | "gemini" | "openai" | "ollama" | "local";
+export type ExtractionMethod = "gemini" | "openai" | "ollama" | "local" | "manual";
 
 export interface InstructorInfo {
   name: string;
@@ -81,6 +81,25 @@ export interface AiSettings {
   geminiModel: string;
   openaiApiKey: string;
   openaiModel: string;
+  ollamaBaseUrl: string;
+  ollamaModel: string;
+}
+
+export interface ServerConfigInfo {
+  serverKeys: {
+    gemini: boolean;
+    openai: boolean;
+  };
+  ollama: {
+    available: boolean;
+    baseUrl: string;
+    models: string[];
+  };
+  defaultModels: {
+    gemini: string;
+    openai: string;
+    ollama: string;
+  };
 }
 
 export const COURSE_ACCENT_COLORS = [
@@ -100,4 +119,6 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   geminiModel: "gemini-2.5-flash",
   openaiApiKey: "",
   openaiModel: "gpt-4o-mini",
+  ollamaBaseUrl: "http://127.0.0.1:11434",
+  ollamaModel: "qwen2.5:7b",
 };

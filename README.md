@@ -13,9 +13,11 @@ Upload any course syllabus PDF to extract:
 
 ## Key Features
 
-- **Hybrid AI + Local Heuristic Engine**:
-  - Works out of the box with **zero API keys** via the built-in local heuristic syllabus parser.
-  - Optionally plug in a **Google Gemini API key** (supports scanned/image-only PDFs natively!) or **OpenAI API key** via `.env.local` or the in-app **AI Settings** modal for higher accuracy across unusual syllabus layouts.
+- **Multi-Engine Extraction (Cloud AI + Local LLM + Offline Layout Parser)**:
+  - **Google Gemini API** — Uses strict `responseSchema` constrained decoding and native PDF ingestion (handles multi-column tables and scanned PDFs accurately; free tier available).
+  - **Ollama Local LLM** — Run open-source models like `qwen2.5:7b` or `llama3.1:8b` locally (`http://127.0.0.1:11434`) with structured JSON output, zero API keys, and 100% privacy.
+  - **OpenAI API** — Structured JSON extraction over layout-reconstructed syllabus text.
+  - **Layout-Aware Offline Parser** — Uses PDF.js text coordinates, font sizes, bold weights, table-column reconstruction, bibliographic scoring, and subset-sum grading validation so it works immediately with zero external dependencies.
 - **Side-by-Side PDF Verification & Inline Editing**:
   - Uploaded PDFs are persisted privately in browser IndexedDB so you can view the original syllabus alongside every extracted field and fix any detail inline.
 - **Multi-Course Dashboard & Cross-Course Exam Timeline**:
@@ -30,19 +32,21 @@ Upload any course syllabus PDF to extract:
 ```mermaid
 flowchart LR
     A[Syllabus PDF Upload] --> B["POST /api/extract"]
-    B --> C["unpdf Text Extractor"]
-    B --> D{Hybrid Extractor}
+    B --> C["Layout-Aware PDF.js Extractor<br/>(coords, font sizes, tables)"]
+    B --> D{Extraction Engine}
     C --> D
-    D -->|Gemini Key| E["Gemini API (Native PDF + JSON)"]
-    D -->|OpenAI Key| F["OpenAI API (JSON Mode)"]
-    D -->|Fallback / Offline| G["Local Heuristic Parser"]
-    E --> H["Zod Schema Normalization"]
-    F --> H
-    G --> H
-    H --> I["React Dashboard + Split PDF Editor"]
-    I --> J["localStorage + IndexedDB Persistence"]
-    I --> K["Interactive Grade Calculator"]
-    I --> L["RFC 5545 .ics Calendar Export"]
+    D -->|Gemini Key| E["Gemini API<br/>(Native PDF + responseSchema)"]
+    D -->|Ollama Local| F["Ollama Local LLM<br/>(JSON Schema Format)"]
+    D -->|OpenAI Key| G["OpenAI API<br/>(JSON Mode)"]
+    D -->|Offline Fallback| H["Structural Layout Parser<br/>(Bib Scoring + 100% Subset-Sum)"]
+    E --> I["Zod Schema Normalization"]
+    F --> I
+    G --> I
+    H --> I
+    I --> J["React Dashboard + Split PDF Editor"]
+    J --> K["localStorage + IndexedDB Persistence"]
+    J --> L["Interactive Grade Calculator"]
+    J --> M["RFC 5545 .ics Calendar Export"]
 ```
 
 ---

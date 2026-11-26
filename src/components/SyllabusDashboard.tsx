@@ -38,6 +38,7 @@ import {
   type AiSettings,
   type CourseOutline,
   type ExtractedSyllabus,
+  type ServerConfigInfo,
 } from "@/lib/types";
 
 function getDaysUntil(dateStr: string): number | null {
@@ -71,7 +72,15 @@ export function SyllabusDashboard() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
-  const [serverKeys, setServerKeys] = useState({ gemini: false, openai: false });
+  const [serverConfig, setServerConfig] = useState<ServerConfigInfo>({
+    serverKeys: { gemini: false, openai: false },
+    ollama: { available: false, baseUrl: "http://127.0.0.1:11434", models: [] },
+    defaultModels: {
+      gemini: "gemini-2.5-flash",
+      openai: "gpt-4o-mini",
+      ollama: "qwen2.5:7b",
+    },
+  });
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
   const [loadingSample, setLoadingSample] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -83,8 +92,8 @@ export function SyllabusDashboard() {
 
     fetch("/api/config")
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { serverKeys?: { gemini: boolean; openai: boolean } } | null) => {
-        if (data?.serverKeys) setServerKeys(data.serverKeys);
+      .then((data: ServerConfigInfo | null) => {
+        if (data?.serverKeys) setServerConfig(data);
       })
       .catch(() => {
         // Ignore offline/config check failure
@@ -244,7 +253,10 @@ export function SyllabusDashboard() {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("provider", aiSettings.provider);
-      if (aiSettings.geminiApiKey && (aiSettings.provider === "auto" || aiSettings.provider === "gemini")) {
+      if (aiSettings.provider === "ollama") {
+        if (aiSettings.ollamaBaseUrl) formData.append("ollamaBaseUrl", aiSettings.ollamaBaseUrl);
+        if (aiSettings.ollamaModel) formData.append("model", aiSettings.ollamaModel);
+      } else if (aiSettings.geminiApiKey && (aiSettings.provider === "auto" || aiSettings.provider === "gemini")) {
         formData.append("apiKey", aiSettings.geminiApiKey);
         formData.append("model", aiSettings.geminiModel);
       } else if (aiSettings.openaiApiKey && (aiSettings.provider === "auto" || aiSettings.provider === "openai")) {
@@ -349,7 +361,10 @@ export function SyllabusDashboard() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("provider", aiSettings.provider);
-    if (
+    if (aiSettings.provider === "ollama") {
+      if (aiSettings.ollamaBaseUrl) formData.append("ollamaBaseUrl", aiSettings.ollamaBaseUrl);
+      if (aiSettings.ollamaModel) formData.append("model", aiSettings.ollamaModel);
+    } else if (
       aiSettings.geminiApiKey &&
       (aiSettings.provider === "auto" || aiSettings.provider === "gemini")
     ) {
@@ -807,7 +822,7 @@ export function SyllabusDashboard() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         aiSettings={aiSettings}
-        serverKeys={serverKeys}
+        serverKeys={serverConfig.serverKeys}
         onExtracted={(payload) => void handleExtractedCourse(payload)}
       />
 
@@ -815,7 +830,7 @@ export function SyllabusDashboard() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         settings={aiSettings}
-        serverKeys={serverKeys}
+        serverConfig={serverConfig}
         onSave={(next) => {
           setAiSettings(next);
           saveAiSettings(next);
