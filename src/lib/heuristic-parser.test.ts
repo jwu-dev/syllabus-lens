@@ -165,4 +165,40 @@ F: Overall mark below 50%
     ]);
     expect(result.gradingScheme.reduce((s, g) => s + g.weight, 0)).toBe(100);
   });
+
+  it("extracts instructor name across multi-line table cells, office from office hours, department, and excludes non-book materials", () => {
+    const concordiaStyleSyllabus = `
+Concordia University
+Gina Cody School of Engineering and Computer Science
+Department of Electrical and Computer Engineering
+ELEC 264: Signals and Systems I
+Fall 2026
+
+Instructor:
+Dr. Danielle Nasrallah
+Email: Danielle.nasrallah@opal-rt.com
+Office Hours: 11:30 – 12:00 H 535
+
+Textbooks
+Signals and Systems, Michael D. Adams, Ed. 6.0
+Free version of the book:
+https://www.ece.uvic.ca/~frodo/sigsysbook/downloads/signals_and_systems-6.0.pdf
+Signals and Systems: Analysis Using Transform Methods and Matlab, Michael J. Roberts, 2nd Edition, ISBN: 978-0073380681, McGraw-Hill, 2011
+Other Course Material: Assignments, Tutorial problems, projects, etc. will be pos
+ted on Moodle.
+Two MATLAB Projects (5 marks each)
+Quizzes 1 and 2 (30 marks)
+`;
+
+    const result = parseSyllabusHeuristically(concordiaStyleSyllabus);
+
+    expect(result.instructor.name).toBe("Dr. Danielle Nasrallah");
+    expect(result.instructor.email).toBe("Danielle.nasrallah@opal-rt.com");
+    expect(result.instructor.officeLocation).toBe("H 535");
+    expect(result.department).toContain("School of Engineering and Computer Science");
+
+    expect(result.textbooks).toHaveLength(2);
+    expect(result.textbooks[0].title).toBe("Signals and Systems");
+    expect(result.textbooks[1].isbn).toBe("978-0073380681");
+  });
 });

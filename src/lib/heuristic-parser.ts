@@ -95,9 +95,9 @@ type SectionKey =
   | "other";
 
 function detectSectionHeading(line: string, currentSection: SectionKey): SectionKey | null {
-  if (line.length > 85) return null;
-  // Don't treat URLs or sentences ending with a period as headings
-  if (/^https?:\/\//i.test(line) || /\.\s*$/.test(line)) return null;
+  if (line.length > 120) return null;
+  // Don't treat URLs as headings
+  if (/^https?:\/\//i.test(line)) return null;
 
   // Preserve required/suggested textbook subheadings inside textbooks section
   if (
@@ -108,6 +108,25 @@ function detectSectionHeading(line: string, currentSection: SectionKey): Section
   ) {
     return null;
   }
+
+  // Inline prefix headings that clearly end the textbooks section even when prose follows on the same line
+  if (currentSection === "textbooks") {
+    if (
+      /^(?:evaluation|grading(?:\s+scheme|\s+policy)?|marking\s+scheme|assessment)\s*:/i.test(line)
+    ) {
+      return "grading";
+    }
+    if (
+      /^(?:other\s+course\s+materials?|course\s+requirements?|assignments?|projects?|quizzes?|tutorials?|laborator(?:y|ies)|labs?|software|matlab|course\s+content|course\s+schedule|course\s+outline|important\s+notes?|policies|calculator)/i.test(
+        line
+      ) &&
+      (/:/.test(line) || /\(\s*\d+\s*(?:marks?|points?|%)/i.test(line))
+    ) {
+      return "other";
+    }
+  }
+
+  if (line.length > 85 || /\.\s*$/.test(line)) return null;
 
   const hasNumbering = /^(?:section\s+)?(?:\d+(?:\.\d+)*|[IVX]+)[.):\-]\s+/i.test(line);
   const normalized = line
@@ -208,7 +227,7 @@ function splitIntoSections(lines: string[]): Record<SectionKey, string[]> {
 }
 
 function extractCourseHeader(lines: string[]) {
-  const topLines = lines.slice(0, 20);
+  const topLines = lines.slice(0, 35);
   const topText = topLines.join("\n");
 
   let courseCode = "";
@@ -224,9 +243,16 @@ function extractCourseHeader(lines: string[]) {
   }
 
   for (const line of topLines) {
-    const deptMatch = line.match(/^(?:Department|Faculty|School)\s+of\s+(.+)$/i);
-    if (deptMatch && !department) {
-      department = line.trim();
+    if (!department) {
+      const deptMatch = line.match(
+        /(?:(?:[A-Z][A-Za-z'&-]+\s+){0,4}(?:Department|Dept\.|Faculty|School)\s+of\s+[A-Za-z0-9\s,&'-]+)/i
+      );
+      if (deptMatch) {
+        department = deptMatch[0]
+          .replace(/\s*[—–-]\s*(?:Fall|Winter|Spring|Summer|Course\s+Outline).*$/i, "")
+          .replace(/[,.;:\s]+$/, "")
+          .trim();
+      }
     }
 
     if (!courseCode) {
@@ -263,8 +289,51 @@ function extractCourseHeader(lines: string[]) {
   return { courseCode, courseTitle, term, department };
 }
 
+function cleanPersonName(raw: string): string {
+  return raw
+    .replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, "")
+    .replace(/\b(?:office|room|tel|phone|ext|hours?)\b.*$/i, "")
+    .replace(/[()<>|•,\-–—]+\s*$/, "")
+    .replace(/^[:\-–—\s]+/, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function looksLikePersonNameLine(line: string): boolean {
+  const s = line.trim();
+  if (s.length < 4 || s.length > 75) return false;
+  if (/@|https?:\/\/|\d{2,}|:/.test(s)) return false;
+  if (
+    /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|fall|winter|spring|summer|course|outline|syllabus|university|department|faculty|school|building|room|office|hours|lecture|tutorial|lab|exam|midterm|final)\b/i.test(
+      s
+    )
+  ) {
+    return false;
+  }
+  const strippedTitles = s
+    .replace(/^(?:Dr\.?|Prof\.?(?:essor)?|Mr\.?|Ms\.?|Mrs\.?)\s+/i, "")
+    .replace(/,\s*(?:Ph\.?D\.?|P\.?Eng\.?|M\.?Sc\.?|Ing\.?)\b.*$/i, "")
+    .trim();
+  const words = strippedTitles.split(/\s+/);
+  if (words.length < 2 || words.length > 5) return false;
+  return words.every((w) => /^[A-Z][a-zA-Z'.-]*$/.test(w));
+}
+
+function extractRoomFromText(text: string): string {
+  // Matches "Room 412B", "Rm. 204", "H 535", "H-535", "EV 5.123", "MB 3.210", "Hall 535"
+  const explicit = text.match(
+    /\b(?:Room|Rm\.?|Bldg\.?|Building|Hall)\s+[A-Z0-9][A-Za-z0-9.\s-]{1,20}/i
+  );
+  if (explicit) return explicit[0].replace(/[,.;)\s]+$/, "").trim();
+
+  const bldgCode = text.match(/\b([A-Z]{1,3}[\s-]?\d{1,4}(?:\.\d{1,3})?[A-Z]?)\b/);
+  if (bldgCode) return bldgCode[1].trim();
+  return "";
+}
+
 function extractInstructor(lines: string[], instructorSection: string[]) {
-  const pool = [...instructorSection, ...lines.slice(0, 40)];
+  const topLines = lines.slice(0, 50);
+  const pool = [...instructorSection, ...topLines];
 
   let name = "";
   let email = "";
@@ -272,59 +341,129 @@ function extractInstructor(lines: string[], instructorSection: string[]) {
   let officeHours = "";
   const teachingAssistants: string[] = [];
 
-  for (const line of pool) {
+  for (let i = 0; i < pool.length; i++) {
+    const line = pool[i];
+    const nextLine = pool[i + 1] ?? "";
+
+    // Inline Instructor/Professor/Lecturer label (supports optional parenthetical like "Instructor (Sec S):")
     if (!name) {
       const m = line.match(
-        /^(?:Instructor|Course\s+Instructor|Professor|Lecturer|Taught\s+by)\s*:\s*(.+)$/i
+        /^(?:Instructor|Course\s+Instructor|Professor|Lecturer|Taught\s+by)(?:\s*\([^)]*\))?\s*[:\-–]?\s*(.*)$/i
       );
       if (m) {
-        const value = m[1].trim();
-        const emailInLine = value.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
-        if (emailInLine && !email) email = emailInLine[0];
-        name = value
-          .replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, "")
-          .replace(/[()<>|•,-]+\s*$/, "")
-          .replace(/\s{2,}/g, " ")
-          .trim();
+        const inlineVal = m[1].trim();
+        if (inlineVal) {
+          const emailInLine = inlineVal.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
+          if (emailInLine && !email) email = emailInLine[0];
+          const cleaned = cleanPersonName(inlineVal);
+          if (cleaned.length >= 3 && !/^(?:information|details|contact)$/i.test(cleaned)) {
+            name = cleaned;
+          }
+        } else if (nextLine && looksLikePersonNameLine(nextLine)) {
+          name = cleanPersonName(nextLine);
+        }
+      } else if (instructorSection.includes(line)) {
+        const nameLabel = line.match(/^Name\s*:\s*(.+)$/i);
+        if (nameLabel) {
+          name = cleanPersonName(nameLabel[1]);
+        }
       }
     }
 
     if (!email) {
-      const m = line.match(/^(?:E-?mail|Contact)\s*:\s*([\w.+-]+@[\w.-]+\.[a-z]{2,})/i);
+      const m = line.match(/^(?:E-?mail|Contact)\s*:?\s*([\w.+-]+@[\w.-]+\.[a-z]{2,})/i);
       if (m) {
         email = m[1].trim();
+      } else if (/^(?:E-?mail|Contact)\s*:?$/i.test(line)) {
+        const nextEmail = nextLine.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
+        if (nextEmail) email = nextEmail[0];
       } else if (instructorSection.includes(line)) {
         const anyEmail = line.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
-        if (anyEmail && !/ta|assistant/i.test(line)) {
+        if (anyEmail && !/\b(?:ta|assistant|tutorial|marker)\b/i.test(line)) {
           email = anyEmail[0];
         }
       }
     }
 
     if (!officeHours) {
-      const m = line.match(/^Office\s+Hours?\s*:\s*(.+)$/i);
-      if (m) officeHours = m[1].trim();
-    }
-
-    if (!officeLocation) {
-      const m = line.match(/^(?:Office(?:\s+Location)?|Room)\s*:\s*(.+)$/i);
-      if (m && !/^hours/i.test(m[1].trim())) {
-        officeLocation = m[1].trim();
+      const m = line.match(/^Office\s+Hours?\s*:\s*(.*)$/i);
+      if (m) {
+        officeHours = m[1].trim() || (nextLine && /\d{1,2}:\d{2}|appointment|mon|tue|wed|thu|fri/i.test(nextLine) ? nextLine.trim() : "");
       }
     }
 
-    const taMatch = line.match(/^(?:Teaching\s+Assistants?|TAs?)\s*:\s*(.+)$/i);
+    if (!officeLocation) {
+      const m = line.match(/^(?:Office(?:\s+Location)?|Room)\s*:\s*(.*)$/i);
+      if (m && !/^hours/i.test(m[1].trim())) {
+        officeLocation = m[1].trim() || (nextLine && !/^(?:office|email|phone|tel|ta|teaching)/i.test(nextLine) ? nextLine.trim() : "");
+      }
+    }
+
+    const taMatch = line.match(/^(?:Teaching\s+Assistants?|TAs?|Tutorial\s+Leaders?|Markers?)\s*:\s*(.*)$/i);
     if (taMatch) {
-      const parts = taMatch[1]
-        .split(/;\s*|,\s+(?=[A-Z])/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      for (const p of parts) {
+      const val = taMatch[1].trim();
+      const rawItems = val
+        ? val.split(/;\s*|,\s+(?=[A-Z])/)
+        : nextLine && !/^(?:office|email|textbook|exam|grading|course)/i.test(nextLine)
+        ? [nextLine]
+        : [];
+      for (const p of rawItems.map((s) => s.trim()).filter(Boolean)) {
         if (!teachingAssistants.includes(p)) {
           teachingAssistants.push(p);
         }
       }
     }
+  }
+
+  // Fallback 1: bare person-name line inside instructorSection (when "Instructor:" was consumed as section heading)
+  if (!name && instructorSection.length > 0) {
+    const candidate = instructorSection.find((l) => looksLikePersonNameLine(l));
+    if (candidate) name = cleanPersonName(candidate);
+  }
+
+  // Fallback 2: if email was found (e.g. Danielle.nasrallah@...), match a line containing name parts or Dr./Prof.
+  if (!name && email) {
+    const localPart = email.split("@")[0].toLowerCase();
+    const tokens = localPart.split(/[._-]+/).filter((t) => t.length >= 3);
+    const matchedLine = topLines.find((l) => {
+      if (l.includes("@")) return false;
+      const lower = l.toLowerCase();
+      return tokens.length >= 2
+        ? tokens.every((t) => lower.includes(t))
+        : tokens.some((t) => lower.includes(t)) && looksLikePersonNameLine(l);
+    });
+    if (matchedLine) {
+      name = cleanPersonName(matchedLine);
+    } else {
+      const drLine = topLines.find(
+        (l) => /^(?:Dr\.?|Prof\.?(?:essor)?)\s+[A-Z]/.test(l) && l.length < 70
+      );
+      if (drLine) name = cleanPersonName(drLine);
+    }
+  }
+
+  // Fallback 3: extract embedded office/room code from Office Hours (e.g., "11:30 - 12:00 H 535" -> "H 535")
+  if (!officeLocation && officeHours) {
+    const strippedTime = officeHours
+      .replace(
+        /\b\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)?\s*(?:-|–|—|to)\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)?\b/g,
+        ""
+      )
+      .replace(/\b\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?\b/g, "")
+      .trim();
+    const extractedRoom = extractRoomFromText(strippedTime);
+    if (extractedRoom) {
+      officeLocation = extractedRoom;
+    }
+  }
+
+  // Fallback 4: pick up first non-TA email in top lines if still missing
+  if (!email) {
+    const topEmailLine = topLines.find(
+      (l) => /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i.test(l) && !/\b(?:ta|assistant|helpdesk|support|admin)\b/i.test(l)
+    );
+    const m = topEmailLine?.match(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/i);
+    if (m) email = m[0];
   }
 
   return {
@@ -456,37 +595,50 @@ function isNonBookNoiseLine(line: string): boolean {
   if (line.length < 6 || line.length > 260) return true;
   // Pure URL or email
   if (/^(?:https?:\/\/|www\.|mailto:)/i.test(line)) return true;
-  // Policy / instructional prose sentences
+  // Coursework / assessments / marks / weights (clearly not a textbook!)
+  if (/\b\d+\s*(?:marks?|points?|pts)\b/i.test(line)) return true;
+  if (/\b\d{1,3}%\b/.test(line) && !/\bbook|textbook|edition|isbn\b/i.test(line)) {
+    return true;
+  }
   if (
-    /^(?:students?|please|you\s+(?:are|will|can|may|must|should)|this\s+course|the\s+course|lectures?|tutorials?|labs?|exams?|midterms?|final\s+exam|assignments?|homework|attendance|grading|evaluation|note\s+that|for\s+more\s+info|if\s+you|all\s+(?:students|exams|assignments|materials)|academic\s+integrity|in\s+accordance|university|faculty|department|copyright|calculators?|office\s+hours|prerequisite)/i.test(
+    /\b(?:other\s+course\s+material|quizzes?\s+\d|two\s+matlab\s+projects?|matlab\s+projects?|tutorial\s+problems?|lab\s+reports?|midterm\s+exam|final\s+exam|will\s+be\s+pos|posted\s+on|uploaded\s+to|brightspace|canvas|blackboard|moodle|piazza|gradescope)\b/i.test(
       line
     )
   ) {
     return true;
   }
-  // Sentences with grading percentages or calendar dates (clearly bled from another section)
-  if (/\b\d{1,3}%\b/.test(line) && !/\bbook|textbook|edition|isbn\b/i.test(line)) {
+  // Policy / instructional prose sentences
+  if (
+    /^(?:students?|please|you\s+(?:are|will|can|may|must|should)|this\s+course|the\s+course|lectures?|tutorials?|labs?|exams?|midterms?|final\s+exam|assignments?|homework|quizzes?|projects?|attendance|grading|evaluation|note\s+that|for\s+more\s+info|if\s+you|all\s+(?:students|exams|assignments|materials)|academic\s+integrity|in\s+accordance|university|faculty|department|copyright|calculators?|office\s+hours|prerequisite|solve\s+the\s+problems?)/i.test(
+      line
+    )
+  ) {
     return true;
   }
   // Short heading-like label ending with ":" (e.g., "Free version of the book:")
   if (/:\s*$/.test(line) && line.length < 65) return true;
-  // Pure conversational sentence with verbs and no citation clues
-  const hasCitationClue =
+  // Pure conversational sentence with verbs and no real book citation clues
+  const hasRealBookClue =
     EDITION_REGEX.test(line) ||
     PUBLISHER_REGEX.test(line) ||
     /\bISBN\b/i.test(line) ||
     /\b(?:19|20)\d{2}\b/.test(line) ||
-    /\bby\s+[A-Z]/i.test(line) ||
-    /,\s*[A-Z][a-z]+/.test(line);
+    /\bby\s+[A-Z][a-z]+/i.test(line);
   if (
-    !hasCitationClue &&
-    /\b(?:will\s+be|must\s+be|should\s+be|are\s+expected|is\s+not\s+allowed|can\s+be\s+found|posted\s+on|uploaded\s+to|brightspace|canvas|blackboard|moodle|piazza)\b/i.test(
+    !hasRealBookClue &&
+    /\b(?:will\s+be|must\s+be|should\s+be|are\s+expected|is\s+not\s+allowed|can\s+be\s+found|is\s+mandatory|are\s+due|each\s+student)\b/i.test(
       line
     )
   ) {
     return true;
   }
   return false;
+}
+
+function isEndOfTextbooksTransition(line: string): boolean {
+  return /^(?:other\s+course\s+materials?|course\s+work|coursework|deliverables?|evaluation|grading|quizzes?\b|projects?\b|two\s+.*\bprojects?\b|assignments?\b|homework\b|labs?\b|tutorials?\b|course\s+policies)/i.test(
+    line
+  );
 }
 
 function looksLikeAuthorSegment(segment: string): boolean {
@@ -564,6 +716,11 @@ function extractTextbooks(textbookSection: string[]) {
 
     const stripped = line.replace(/^[-•*▪]\s*|^\[\d+\]\s*|^\d+[.)]\s*/, "").trim();
     if (!stripped) continue;
+
+    // Once we have found at least one textbook, stop if the document moves on to coursework/quizzes/other materials
+    if (candidates.length > 0 && isEndOfTextbooksTransition(stripped)) {
+      break;
+    }
 
     // Merge wrapped multi-line citation into previous candidate
     if (
@@ -690,6 +847,19 @@ function extractTextbooks(textbookSection: string[]) {
     if (pubYearMatch) {
       extraNotes.push(pubYearMatch[1].trim());
       authors = authors.slice(0, pubYearMatch.index).replace(/[,;\s]+$/, "").trim();
+    }
+
+    // Require at least one genuine book citation signal when a line has no authors/edition/ISBN/notes
+    const hasBookMetadata = Boolean(
+      authors ||
+        editionMatch ||
+        isbnMatch ||
+        extraNotes.length > 0 ||
+        PUBLISHER_REGEX.test(line) ||
+        /\b(?:19|20)\d{2}\b/.test(line)
+    );
+    if (!hasBookMetadata && (title.split(/\s+/).length > 12 || /\([^)]*\d+[^)]*\)/.test(title))) {
+      continue;
     }
 
     if (title.length > 2) {
